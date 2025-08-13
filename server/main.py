@@ -185,6 +185,33 @@ def create_scene(name: str = Form(...)):
         s.refresh(sc)
         return sc
 
+class SceneUpdate(BaseModel):
+    name: str
+
+@app.put("/api/scenes/{scene_id}", response_model=SceneOut)
+def update_scene(scene_id: int, payload: SceneUpdate):
+    with Session(engine) as s:
+        scene = _get_scene_or_404(s, scene_id)
+        if s.exec(select(Scene).where(Scene.name == payload.name).where(Scene.id != scene_id)).first():
+            raise HTTPException(status_code=400, detail="Scene name already exists")
+        scene.name = payload.name
+        s.add(scene)
+        s.commit()
+        s.refresh(scene)
+        return scene
+
+@app.delete("/api/scenes/{scene_id}")
+def delete_scene(scene_id: int):
+    with Session(engine) as s:
+        scene = _get_scene_or_404(s, scene_id)
+        # Delete associated graph
+        graph = s.exec(select(Graph).where(Graph.scene_id == scene_id)).first()
+        if graph:
+            s.delete(graph)
+        s.delete(scene)
+        s.commit()
+        return {"ok": True}
+
 def _get_scene_or_404(s: Session, scene_id: int) -> Scene:
     sc = s.get(Scene, scene_id)
     if not sc:

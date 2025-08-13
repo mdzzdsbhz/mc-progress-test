@@ -51,20 +51,30 @@ export default function App() {
   async function onRenameScene(id: number, currentName: string) {
     const newName = prompt(`重命名场景 "${currentName}" 为:`, currentName)
     if (newName && newName !== currentName) {
-      await updateScene(id, { name: newName })
-      const all = await listScenes()
-      setScenes(all)
+      try {
+        await updateScene(id, { name: newName })
+        const all = await listScenes()
+        setScenes(all)
+      } catch (error) {
+        console.error("重命名场景失败:", error)
+        alert("重命名场景失败，请稍后再试。")
+      }
     }
   }
 
   async function onDeleteScene(id: number, name: string) {
     if (confirm(`确定要删除场景 "${name}" 吗？`)) {
-      await deleteScene(id)
-      const all = await listScenes()
-      setScenes(all)
-      if (id === sceneId) {
-        // If the deleted scene was the active one, switch to the first available scene or null
-        setSceneId(all.length > 0 ? all[0].id : null)
+      try {
+        await deleteScene(id)
+        const all = await listScenes()
+        setScenes(all)
+        if (id === sceneId) {
+          // If the deleted scene was the active one, switch to the first available scene or null
+          setSceneId(all.length > 0 ? all[0].id : null)
+        }
+      } catch (error) {
+        console.error("删除场景失败:", error)
+        alert("删除场景失败，请稍后再试。")
       }
     }
   }
