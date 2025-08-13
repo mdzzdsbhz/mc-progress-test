@@ -42,11 +42,21 @@ function IconNode({ data, selected }: any) {
 }
 
 /** —— 伴随详情卡片 —— */
-const DetailNode = ({ data }: any) => (
-  <div className="detail-node">
-    <div className="detail-node-text">{data?.text || ''}</div>
-  </div>
-)
+const DetailNode = ({ data }: any) => {
+  const textStyle: React.CSSProperties = { fontSize: 12, color: '#374151', whiteSpace: 'pre-wrap' }
+  if (data.lineClamp) {
+    textStyle.overflow = 'hidden'
+    textStyle.textOverflow = 'ellipsis'
+    textStyle.display = '-webkit-box'
+    textStyle.WebkitLineClamp = data.lineClamp
+    textStyle.WebkitBoxOrient = 'vertical'
+  }
+  return (
+    <div className="detail-node">
+      <div className="detail-node-text" style={textStyle}>{data?.text || ''}</div>
+    </div>
+  )
+}
 
 /** —— 注册自定义节点类型 —— */
 const nodeTypes = { iconNode: IconNode, detailNode: DetailNode }
@@ -124,13 +134,14 @@ export default function Canvas({
       if (show && txt) {
         const pos = { x: n.position.x + 150, y: n.position.y + 10 }
         let dn = byId.get(dnid)
+        const dnData = { text: txt, lineClamp: n.data.lineClamp }
         if (!dn) {
-          dn = { id: dnid, type: 'detailNode', position: pos, data: { text: txt }, draggable: false, selectable: false }
+          dn = { id: dnid, type: 'detailNode', position: pos, data: dnData, draggable: false, selectable: false }
           resNodes.push(dn); changed = true
         } else {
-          if (dn.data?.text !== txt || dn.position.x != pos.x || dn.position.y != pos.y) {
+          if (dn.data?.text !== txt || dn.position.x != pos.x || dn.position.y != pos.y || dn.data?.lineClamp !== n.data.lineClamp) {
             const idx = resNodes.findIndex(nn => nn.id === dnid)
-            resNodes[idx] = { ...dn, position: pos, data: { ...dn.data, text: txt } }
+            resNodes[idx] = { ...dn, position: pos, data: { ...dn.data, ...dnData } }
             changed = true
           }
         }
@@ -319,6 +330,8 @@ export default function Canvas({
           <input className="inv-search" value={data.title || ''} onChange={e => setNodes(nds => nds.map(n => n.id === selectedId ? ({ ...n, data: { ...n.data, title: e.target.value } }) : n) as any)} />
           <label style={{fontSize:12, color:'#6b7280'}}>详细信息</label>
           <textarea className="inv-search" rows={6} value={data.details || ''} onChange={e => setNodes(nds => nds.map(n => n.id === selectedId ? ({ ...n, data: { ...n.data, details: e.target.value } }) : n) as any)} />
+          <label style={{fontSize:12, color:'#6b7280'}}>行数限制 (0为不限制)</label>
+          <input type="number" className="inv-search" value={data.lineClamp || ''} onChange={e => setNodes(nds => nds.map(n => n.id === selectedId ? ({ ...n, data: { ...n.data, lineClamp: e.target.value ? parseInt(e.target.value) : undefined } }) : n) as any)} />
           <label style={{fontSize:12, color:'#6b7280'}}>图标</label>
           <div style={{display:'flex', gap:8, alignItems:'center'}}>
             {data.icon ? <img src={prefixUrl(data.icon)} style={{width:40,height:40,objectFit:'contain'}}/> : <div>（未设置）</div>}
