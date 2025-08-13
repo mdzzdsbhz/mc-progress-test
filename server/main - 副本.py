@@ -1,19 +1,16 @@
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse
 from sqlmodel import SQLModel, Field, Session, create_engine, select
-from typing import Optional, List, Dict, Any, Set
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from datetime import datetime
-import os, shutil, uuid, json, io, zipfile
+import os, shutil, uuid, json
 
 DB_URL = "sqlite:///./mcprogress.db"
 engine = create_engine(DB_URL, echo=False)
 
-# ------------------------------
-# DB MODELS
-# ------------------------------
 class Item(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
@@ -38,9 +35,6 @@ class Graph(SQLModel, table=True):
     json: str = "{}"
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-# ------------------------------
-# Pydantic Schemas
-# ------------------------------
 class ItemCreate(BaseModel):
     name: str
     category: str = "Custom"
@@ -61,8 +55,7 @@ class ItemOut(BaseModel):
     icon_path: str
     created_at: datetime
     class Config:
-        # 你的环境若是 Pydantic v1 也能兼容（v2 会忽略 orm_mode）
-        orm_mode = True
+        from_attributes = True
 
 class SceneOut(BaseModel):
     id: int
@@ -80,28 +73,6 @@ class GraphOut(GraphIn):
     scene_id: int
     updated_at: datetime
 
-class CategoryCreate(BaseModel):
-    name: str
-
-# ---- 导出/导入用的模型 ----
-class ExportItem(BaseModel):
-    id: int
-    name: str
-    category: str
-    description: str = ""
-    icon_path: str = ""
-
-class ExportSceneManifest(BaseModel):
-    version: int = 1
-    scene: SceneOut
-    graph: GraphIn
-    categories: List[str] = []
-    items: List[ExportItem] = []
-    notes: Dict[str, Any] = {}
-
-# ------------------------------
-# FastAPI App
-# ------------------------------
 app = FastAPI(title="MC Progress System API")
 
 app.add_middleware(
@@ -139,31 +110,6 @@ def init_db():
 def on_start():
     init_db()
 
-# ------------------------------
-# Helpers
-# ------------------------------
-def _get_scene_or_404(s: Session, scene_id: int) -> Scene:
-    sc = s.get(Scene, scene_id)
-    if not sc:
-        raise HTTPException(status_code=404, detail="Scene not found")
-    return sc
-
-def _collect_item_ids_from_graph(graph: Dict[str, Any]) -> Set[int]:
-    ids: Set[int] = set()
-    for n in graph.get("nodes", []):
-        data = n.get("data", {}) or {}
-        # 兼容不同前端字段命名
-        if isinstance(data.get("item_id"), int):
-            ids.add(data["item_id"])
-        if isinstance(data.get("itemId"), int):
-            ids.add(data["itemId"])
-        if isinstance(data.get("item"), dict) and isinstance(data["item"].get("id"), int):
-            ids.add(data["item"]["id"])
-    return ids
-
-# ------------------------------
-# Items
-# ------------------------------
 @app.get("/api/items", response_model=List[ItemOut])
 def list_items(q: Optional[str] = None, category: Optional[str] = None):
     with Session(engine) as s:
@@ -205,20 +151,18 @@ def delete_item(item_id: int):
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
         # Optionally remove icon file
-        if item.icon_path:
-            p = os.path.join(os.getcwd(), item.icon_path.lstrip("/"))
-            if os.path.exists(p):
-                try:
-                    os.remove(p)
-                except Exception:
-                    pass
+        if item.icon_path and os.path.exists(item.icon_path.strip("/")):
+            try:
+                os.remove(item.icon_path.strip("/"))
+            except Exception:
+                pass
         s.delete(item)
         s.commit()
         return {"ok": True}
 
-# ------------------------------
-# Categories
-# ------------------------------
+class CategoryCreate(BaseModel):
+    name: str
+
 @app.get("/api/categories", response_model=List[str])
 def list_custom_categories():
     with Session(engine) as s:
@@ -246,16 +190,13 @@ def delete_custom_category(category_name: str):
         # Reassign items in this category to "Custom"
         items_to_reassign = s.exec(select(Item).where(Item.category == category_name)).all()
         for item in items_to_reassign:
-            item.category = "Custom"
+            item.category = "Custom" # Or another default category
             s.add(item)
 
         s.delete(category)
         s.commit()
         return {"ok": True}
 
-# ------------------------------
-# Upload
-# ------------------------------
 @app.post("/api/upload")
 def upload_icon(file: UploadFile = File(...), name: Optional[str] = Form(None), category: Optional[str] = Form("Custom"), description: Optional[str] = Form("")):
     ext = os.path.splitext(file.filename)[-1].lower()
@@ -276,9 +217,6 @@ def upload_icon(file: UploadFile = File(...), name: Optional[str] = Form(None), 
             return {"icon_url": icon_url, "item": ItemOut.from_orm(item)}
     return {"icon_url": icon_url}
 
-# ------------------------------
-# Scenes / Graph
-# ------------------------------
 @app.get("/api/scenes", response_model=List[SceneOut])
 def list_scenes():
     with Session(engine) as s:
@@ -325,6 +263,12 @@ def delete_scene(scene_id: int):
         s.commit()
         return {"ok": True}
 
+def _get_scene_or_404(s: Session, scene_id: int) -> Scene:
+    sc = s.get(Scene, scene_id)
+    if not sc:
+        raise HTTPException(status_code=404, detail="Scene not found")
+    return sc
+
 @app.get("/api/scenes/{scene_id}/graph", response_model=GraphOut)
 def get_graph(scene_id: int):
     with Session(engine) as s:
@@ -368,143 +312,3 @@ def export_scene_json(scene_id: int):
         with open(path, "w", encoding="utf-8") as f:
             f.write(g.json)
         return FileResponse(path, filename=os.path.basename(path), media_type="application/json")
-
-# ------------------------------
-# NEW: Export ZIP and Import ZIP
-# ------------------------------
-@app.get("/api/export/scene/{scene_id}.zip")
-def export_scene_zip(scene_id: int):
-    with Session(engine) as s:
-        sc = _get_scene_or_404(s, scene_id)
-        grow = s.exec(select(Graph).where(Graph.scene_id == scene_id)).first()
-        if not grow:
-            raise HTTPException(status_code=404, detail="Graph not found")
-        graph_data = json.loads(grow.json)
-
-        # 找到图中涉及的 item（如无法识别，则兜底导出全部物品）
-        item_ids = _collect_item_ids_from_graph(graph_data)
-        if item_ids:
-            items = s.exec(select(Item).where(Item.id.in_(item_ids))).all()
-        else:
-            items = s.exec(select(Item)).all()
-
-        cats = s.exec(select(CustomCategory)).all()
-        cat_names = [c.name for c in cats]
-
-        manifest = ExportSceneManifest(
-            scene=SceneOut.from_orm(sc),
-            graph=GraphIn(**graph_data),
-            categories=cat_names,
-            items=[ExportItem(id=i.id, name=i.name, category=i.category,
-                              description=i.description, icon_path=i.icon_path) for i in items],
-            notes={"exported_at": datetime.utcnow().isoformat()},
-        )
-
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-            # 写 manifest.json（兼容 pydantic v1/v2）
-            try:
-                manifest_json = manifest.model_dump_json(indent=2, ensure_ascii=False)  # v2
-            except Exception:
-                manifest_json = manifest.json(indent=2, ensure_ascii=False)            # v1
-            z.writestr("manifest.json", manifest_json)
-
-            # 复制图标文件到 icons/
-            for it in items:
-                if it.icon_path and it.icon_path.startswith("/uploads/"):
-                    abs_path = os.path.join(os.getcwd(), it.icon_path.lstrip("/"))
-                    if os.path.exists(abs_path):
-                        z.write(abs_path, arcname=f"icons/{os.path.basename(abs_path)}")
-
-        buf.seek(0)
-        filename = f"scene_{scene_id}.zip"
-        return StreamingResponse(buf, media_type="application/zip", headers={
-            "Content-Disposition": f'attachment; filename="{filename}"'
-        })
-
-@app.post("/api/import/scene")
-def import_scene(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".zip"):
-        raise HTTPException(status_code=400, detail="Please upload a .zip")
-
-    tmp = io.BytesIO(file.file.read())
-    with zipfile.ZipFile(tmp, "r") as z:
-        if "manifest.json" not in z.namelist():
-            raise HTTPException(status_code=400, detail="manifest.json not found")
-        manifest_data = json.loads(z.read("manifest.json").decode("utf-8"))
-
-    try:
-        m = ExportSceneManifest(**manifest_data)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Bad manifest: {e}")
-
-    with Session(engine) as s:
-        # 1) 新场景
-        new_scene = Scene(name=f'{m.scene.name} (Imported {datetime.utcnow().strftime("%Y%m%d%H%M%S")})')
-        s.add(new_scene); s.commit(); s.refresh(new_scene)
-
-        # 2) 分类（不存在则创建）
-        for cname in m.categories:
-            if not s.exec(select(CustomCategory).where(CustomCategory.name == cname)).first():
-                s.add(CustomCategory(name=cname))
-        s.commit()
-
-        # 3) 物品导入 + 图标复制 + 去重（name+category）
-        old_to_new: Dict[int, int] = {}
-        for it in m.items:
-            exists = s.exec(
-                select(Item).where(Item.name == it.name).where(Item.category == it.category)
-            ).first()
-
-            icon_path = ""
-            if it.icon_path and it.icon_path.startswith("/uploads/"):
-                basename = os.path.basename(it.icon_path)
-                icon_entry = f"icons/{basename}"
-                if icon_entry in z.namelist():
-                    newname = f"{uuid.uuid4().hex}{os.path.splitext(basename)[1].lower()}"
-                    dst = os.path.join("uploads", newname)
-                    with z.open(icon_entry) as src, open(dst, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                    icon_path = f"/uploads/{newname}"
-
-            if exists:
-                # 若已存在但无图标且导入包有，则补图标
-                if (not exists.icon_path) and icon_path:
-                    exists.icon_path = icon_path
-                    s.add(exists)
-                s.commit(); s.refresh(exists)
-                old_to_new[it.id] = exists.id
-            else:
-                new_item = Item(
-                    name=it.name, category=it.category,
-                    description=it.description or "", icon_path=icon_path
-                )
-                s.add(new_item); s.commit(); s.refresh(new_item)
-                old_to_new[it.id] = new_item.id
-
-        # 4) 重写 graph 里的 itemId / item_id / item.id
-        #    兼容 v1/v2 的 dict 导出
-        try:
-            graph_obj = m.graph.model_dump()
-        except Exception:
-            graph_obj = m.graph.dict()
-
-        for n in graph_obj.get("nodes", []):
-            data = n.get("data") or {}
-            if isinstance(data.get("item_id"), int) and data["item_id"] in old_to_new:
-                data["item_id"] = old_to_new[data["item_id"]]
-            if isinstance(data.get("itemId"), int) and data["itemId"] in old_to_new:
-                data["itemId"] = old_to_new[data["itemId"]]
-            if isinstance(data.get("item"), dict) and isinstance(data["item"].get("id"), int):
-                old = data["item"]["id"]
-                if old in old_to_new:
-                    data["item"]["id"] = old_to_new[old]
-            n["data"] = data
-
-        # 5) 保存图
-        g = Graph(scene_id=new_scene.id,
-                  json=json.dumps(graph_obj, ensure_ascii=False),
-                  updated_at=datetime.utcnow())
-        s.add(g); s.commit()
-
-        return {"ok": True, "scene_id": new_scene.id}

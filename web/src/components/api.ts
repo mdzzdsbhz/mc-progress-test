@@ -107,3 +107,20 @@ export async function createCategory(name: string): Promise<string> {
 export async function deleteCategory(name: string): Promise<void> {
   await api.delete(`/api/categories/${encodeURIComponent(name)}`)
 }
+
+
+// 下载 ZIP
+export async function exportSceneZip(sceneId: number): Promise<Blob> {
+  const res = await api.get(`/api/export/scene/${sceneId}.zip`, { responseType: 'blob' })
+  return res.data
+}
+
+// 上传 ZIP（导入场景）
+export async function importSceneZip(file: File): Promise<{ ok: boolean; scene_id: number }> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post('/api/import/scene', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+  return data
+}
