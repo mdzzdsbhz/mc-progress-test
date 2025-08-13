@@ -31,12 +31,12 @@ function IconNode({ data, selected }: any) {
       <div className="mc-node-title">{data.title || '未命名'}</div>
 
       {/* 源把手（起点）：上 / 右 */}
-      <Handle id="t" type="source" position={Position.Top} style={{ width: 14, height: 14, cursor: 'crosshair', zIndex: 5 }} />
-      <Handle id="r" type="source" position={Position.Right} style={{ width: 14, height: 14, cursor: 'crosshair', zIndex: 5 }} />
+      <Handle id="t" type="source" position={Position.Top} style={{ width: 10, height: 10, cursor: 'crosshair', zIndex: 5 }} />
+      <Handle id="r" type="source" position={Position.Right} style={{ width: 10, height: 10, cursor: 'crosshair', zIndex: 5 }} />
 
       {/* 目标把手（终点）：下 / 左 */}
-      <Handle id="b" type="target" position={Position.Bottom} style={{ width: 14, height: 14, cursor: 'crosshair', zIndex: 5 }} />
-      <Handle id="l" type="target" position={Position.Left} style={{ width: 14, height: 14, cursor: 'crosshair', zIndex: 5 }} />
+      <Handle id="b" type="target" position={Position.Bottom} style={{ width: 10, height: 10, cursor: 'crosshair', zIndex: 5 }} />
+      <Handle id="l" type="target" position={Position.Left} style={{ width: 10, height: 10, cursor: 'crosshair', zIndex: 5 }} />
     </div>
   )
 }
