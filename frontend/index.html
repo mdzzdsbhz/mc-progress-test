@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>MC 进度系统 · AntV X6</title>
+  <link rel="stylesheet" href="https://unpkg.com/@antv/x6@2/dist/x6.css">
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    #library-modal {
+      position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%;
+      background-color: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center;
+    }
+    .modal-content { background-color: #fefefe; padding: 20px; border: 1px solid #888; width: 80%; max-width: 700px; max-height: 80vh; display: flex; flex-direction: column; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px; border-bottom: 1px solid #ddd; }
+    .modal-header h3 { margin: 0; }
+    #modal-close { font-size: 28px; font-weight: bold; cursor: pointer; border: none; background: none; }
+    .modal-body { overflow-y: auto; padding-top: 10px; display: grid; grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); gap: 15px; }
+    .current-icon { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; }
+    .current-icon img { width: 48px; height: 48px; border: 1px solid #ddd; padding: 2px; }
+    .form-group { margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⛏️ MC 风进度系统</div>
+    <div class="toolbar">
+      <button id="btn-undo" title="撤销 (Ctrl+Z)">撤销</button>
+      <button id="btn-redo" title="重做 (Ctrl+Shift+Z)">重做</button>
+      <button id="btn-autolayout" title="自动布局 (Dagre)">自动布局</button>
+      <button id="btn-export" title="导出为PNG">导出PNG</button>
+      <button id="btn-save" title="保存图谱到数据库">保存</button>
+      <select id="edge-style">
+        <option value="manhattan">正交（MC风）</option>
+        <option value="normal">直线</option>
+        <option value="polyline">折线</option>
+        <option value="smooth">贝塞尔</option>
+      </select>
+      <button id="btn-stub">短横</button>
+      <button id="btn-fork">分叉</button>
+      <button id="btn-new-level">独立层级</button>
+      <button id="btn-delete-node">删除节点</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar left" id="sidebar-left">
+      <div class="library-admin">
+        <div class="row">
+          <input id="search" placeholder="搜索物品…" />
+          <select id="category-filter"></select>
+        </div>
+        <div class="row">
+          <input id="new-category-name" placeholder="新建分类">
+          <button id="btn-add-category">添加分类</button>
+        </div>
+        <div class="row">
+          <input id="rename-category-name" placeholder="重命名当前分类">
+          <button id="btn-rename-category">重命名</button>
+        </div>
+        <div class="row">
+          <span class="hint">拖拽物品到下面的分类以重分类</span>
+        </div>
+        <ul id="category-list" class="cat-list"></ul>
+        <div class="row">
+          <button id="btn-choose-files">选择图片</button>
+          <input type="file" id="upload-input" multiple accept="image/*" style="display:none">
+          <span class="hint">或将图片拖拽到下方“上传区域”或直接拖到物品库列表</span>
+        </div>
+      </div>
+
+      <div class="dropzone" id="upload-drop">
+        将图片拖到此处上传到当前分类
+      </div>
+
+      <div id="library" class="library"></div>
+    </aside>
+
+    <section class="canvas-wrap">
+      <div id="graph"></div>
+      <div id="minimap"></div>
+      <div class="status" id="status">Ready.</div>
+    </section>
+
+    <aside class="sidebar right">
+      <div class="inspector">
+        <h3>详细信息</h3>
+        <div id="inspector-empty">选择一个节点以编辑</div>
+        <form id="inspector-form" class="hidden">
+          <label>标题 <input name="title"></label>
+          <label>状态 
+            <select name="status">
+              <option>未开始</option>
+              <option>进行中</option>
+              <option>已完成</option>
+              <option>阻塞</option>
+            </select>
+          </label>
+          <label>进度 <input name="progress" type="number" min="0" max="100" step="1"></label>
+          <label>负责人 <input name="owner"></label>
+          <label>截止日期 <input name="due" type="date"></label>
+          <label>标签 <input name="tags" placeholder="tag1, tag2"></label>
+          <label>备注 <textarea name="notes" rows="4"></textarea></label>
+          <div class="row">
+            <button type="submit">保存节点</button>
+            <button type="button" id="btn-collapse">折叠详细</button>
+          </div>
+        </form>
+      </div>
+      <div class="graphs">
+        <h3>图谱</h3>
+        <div class="row">
+          <input id="new-graph-name" placeholder="新图谱名称">
+          <button id="btn-new-graph">新建</button>
+        </div>
+        <ul id="graph-list"></ul>
+      </div>
+    </aside>
+  </main>
+
+  <script src="/static/libs/x6.js" defer></script>
+  <script src="/static/libs/layout.min.js" defer></script>
+  <script>
+    (function(){
+      function ensure(src, test){ if (test()) return; var s=document.createElement('script'); s.src=src; document.head.appendChild(s); }
+      ensure('https://cdn.jsdelivr.net/npm/@antv/x6/dist/x6.js', function(){ return !!window.X6; });
+      ensure('https://cdn.jsdelivr.net/npm/@antv/layout@0.3.22/dist/layout.min.js', function(){ return !!window.G6Layout; });
+    })();
+  </script>
+  <script src="/static/app.js?v=15" defer></script>
+</body>
+</html>

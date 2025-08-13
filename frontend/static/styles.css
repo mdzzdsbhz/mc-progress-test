@@ -1,0 +1,57 @@
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto; color: #1f2937; }
+.topbar { display:flex; align-items:center; justify-content: space-between; padding:8px 12px; border-bottom:1px solid #e5e7eb; background:#fff; position: sticky; top:0; z-index:10; }
+.topbar .brand { font-weight:700; }
+.toolbar button, .toolbar select { margin-right:8px; }
+.layout { display:grid; grid-template-columns: 360px 1fr 320px; height: calc(100vh - 52px); }
+.sidebar { border-right:1px solid #e5e7eb; overflow:auto; background:#fafafa; }
+.sidebar.right { border-left:1px solid #e5e7eb; border-right:none; padding:12px; }
+.canvas-wrap { position: relative; background: #f8fafc; }
+#graph { width: 100%; height: 100%; }
+#minimap { position:absolute; right:10px; bottom:10px; width:220px; height:140px; border:1px solid #e5e7eb; background:#fff; box-shadow:0 2px 6px rgba(0,0,0,.05); }
+.status { position:absolute; left:10px; bottom:10px; background:#fff; border:1px solid #e5e7eb; padding:4px 8px; border-radius:6px; font-size:12px; }
+
+/* Library */
+.library-admin { padding:8px; background:#fff; position: sticky; top:0; z-index: 5; border-bottom:1px solid #e5e7eb; }
+.library-admin .row { display:flex; gap:8px; margin-bottom:8px; align-items:center; }
+.library-admin .hint { font-size:12px; color:#6b7280; }
+.dropzone { padding:12px; margin:8px; border:1px dashed #9ca3af; border-radius:8px; text-align:center; font-size:12px; background:#fff; }
+.dropzone.dragover { background: #eff6ff; border-color:#3b82f6; }
+.library { display:grid; grid-template-columns: repeat(3, 1fr); gap:8px; padding:8px; }
+.item { background:#fff; border:1px solid #e5e7eb; border-radius:10px; padding:8px; cursor:grab; text-align:center; user-select:none; box-shadow:0 1px 2px rgba(0,0,0,.04); }
+.item img { width: 48px; height: 48px; image-rendering: pixelated; }
+.item .name { font-size:12px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+.inspector h3, .graphs h3 { margin: 8px 0; }
+.inspector label { display:block; margin:6px 0; font-size:12px; }
+.inspector input, .inspector textarea, .inspector select { width:100%; padding:6px 8px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
+.inspector .row { display:flex; gap:8px; margin-top:8px; }
+#inspector-empty { color:#6b7280; font-size:13px; }
+
+.hidden { display:none; }
+
+.switch { margin-left:8px; font-size:12px; }
+.switch input { vertical-align: middle; margin-right:4px; }
+
+/* X6 node styles */
+.mc-node { border-radius: 8px; overflow: hidden; border:2px solid #374151; background:#1f2937; color:#fff; }
+.mc-node .icon { width: 64px; height: 64px; image-rendering: pixelated; display:block; margin:auto; }
+.mc-node .label { font-size: 12px; text-align:center; padding:2px 4px; background:#111827; }
+
+/* Details balloon */
+.detail-card { position:absolute; background:#fff; border:1px solid #e5e7eb; border-radius:10px; width: 240px; padding:8px; box-shadow:0 6px 16px rgba(0,0,0,.08); pointer-events:none; }
+.detail-card .title { font-weight: 600; margin-bottom:4px; }
+.detail-card .meta { font-size: 12px; color:#6b7280; }
+.detail-card .notes { font-size: 12px; margin-top:6px; color:#111827; }
+
+/* toolbar buttons */
+button { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; cursor:pointer; }
+button:hover { background:#f9fafb; }
+select, input[type="text"] { padding:6px 10px; border:1px solid #e5e7eb; border-radius:8px; background:#fff; }
+
+
+/* Category list (droppable) */
+.cat-list { list-style:none; padding:0 8px 8px; margin:0; display:grid; grid-template-columns: repeat(2, 1fr); gap:8px; }
+.cat-list li { background:#fff; border:1px dashed #d1d5db; border-radius:8px; padding:6px 8px; font-size:12px; cursor:default; }
+.cat-list li.dragenter { border-color:#3b82f6; background:#eff6ff; }
