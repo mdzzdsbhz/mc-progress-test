@@ -24,6 +24,11 @@ class Scene(SQLModel, table=True):
     name: str = "Default"
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
+class CustomCategory(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(index=True, unique=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
 class Graph(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     scene_id: int = Field(index=True)
@@ -36,6 +41,12 @@ class ItemCreate(BaseModel):
     description: str = ""
     icon_path: str = ""
 
+class ItemUpdate(BaseModel):
+    name: Optional[str] = None
+    category: Optional[str] = None
+    description: Optional[str] = None
+    icon_path: Optional[str] = None
+
 class ItemOut(BaseModel):
     id: int
     name: str
@@ -44,7 +55,7 @@ class ItemOut(BaseModel):
     icon_path: str
     created_at: datetime
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class SceneOut(BaseModel):
     id: int
@@ -121,12 +132,12 @@ def create_item(payload: ItemCreate):
         return item
 
 @app.put("/api/items/{item_id}", response_model=ItemOut)
-def update_item(item_id: int, payload: ItemCreate):
+def update_item(item_id: int, payload: ItemUpdate):
     with Session(engine) as s:
         item = s.get(Item, item_id)
         if not item:
             raise HTTPException(status_code=404, detail="Item not found")
-        for k, v in payload.dict().items():
+        for k, v in payload.dict(exclude_unset=True).items():
             setattr(item, k, v)
         s.add(item)
         s.commit()
@@ -146,6 +157,43 @@ def delete_item(item_id: int):
             except Exception:
                 pass
         s.delete(item)
+        s.commit()
+        return {"ok": True}
+
+class CategoryCreate(BaseModel):
+    name: str
+
+@app.get("/api/categories", response_model=List[str])
+def list_custom_categories():
+    with Session(engine) as s:
+        categories = s.exec(select(CustomCategory)).all()
+        return [c.name for c in categories]
+
+@app.post("/api/categories", response_model=str)
+def create_custom_category(payload: CategoryCreate):
+    with Session(engine) as s:
+        if s.exec(select(CustomCategory).where(CustomCategory.name == payload.name)).first():
+            raise HTTPException(status_code=400, detail="Category already exists")
+        category = CustomCategory(name=payload.name)
+        s.add(category)
+        s.commit()
+        s.refresh(category)
+        return category.name
+
+@app.delete("/api/categories/{category_name}")
+def delete_custom_category(category_name: str):
+    with Session(engine) as s:
+        category = s.exec(select(CustomCategory).where(CustomCategory.name == category_name)).first()
+        if not category:
+            raise HTTPException(status_code=404, detail="Category not found")
+
+        # Reassign items in this category to "Custom"
+        items_to_reassign = s.exec(select(Item).where(Item.category == category_name)).all()
+        for item in items_to_reassign:
+            item.category = "Custom" # Or another default category
+            s.add(item)
+
+        s.delete(category)
         s.commit()
         return {"ok": True}
 
@@ -174,12 +222,15 @@ def list_scenes():
     with Session(engine) as s:
         return s.exec(select(Scene).order_by(Scene.created_at.desc())).all()
 
+class SceneCreate(BaseModel):
+    name: str
+
 @app.post("/api/scenes", response_model=SceneOut)
-def create_scene(name: str = Form(...)):
+def create_scene(payload: SceneCreate):
     with Session(engine) as s:
-        if s.exec(select(Scene).where(Scene.name == name)).first():
+        if s.exec(select(Scene).where(Scene.name == payload.name)).first():
             raise HTTPException(status_code=400, detail="Scene name already exists")
-        sc = Scene(name=name)
+        sc = Scene(name=payload.name)
         s.add(sc)
         s.commit()
         s.refresh(sc)
