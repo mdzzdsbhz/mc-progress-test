@@ -4,9 +4,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, StreamingResponse
 from sqlmodel import SQLModel, Field, Session, create_engine, select
 from typing import Optional, List, Dict, Any, Set
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict  # ← 新增 ConfigDict
 from datetime import datetime
 import os, shutil, uuid, json, io, zipfile
+from fastapi.encoders import jsonable_encoder
 
 DB_URL = "sqlite:///./mcprogress.db"
 engine = create_engine(DB_URL, echo=False)
@@ -60,16 +61,15 @@ class ItemOut(BaseModel):
     description: str
     icon_path: str
     created_at: datetime
-    class Config:
-        # 你的环境若是 Pydantic v1 也能兼容（v2 会忽略 orm_mode）
-        orm_mode = True
+    # v2 配置
+    model_config = ConfigDict(from_attributes=True)
 
 class SceneOut(BaseModel):
     id: int
     name: str
     created_at: datetime
-    class Config:
-        orm_mode = True
+    # v2 配置
+    model_config = ConfigDict(from_attributes=True)
 
 class GraphIn(BaseModel):
     nodes: List[Dict[str, Any]]
@@ -404,9 +404,12 @@ def export_scene_zip(scene_id: int):
         with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
             # 写 manifest.json（兼容 pydantic v1/v2）
             try:
-                manifest_json = manifest.model_dump_json(indent=2, ensure_ascii=False)  # v2
-            except Exception:
-                manifest_json = manifest.json(indent=2, ensure_ascii=False)            # v1
+                manifest_dict = manifest.model_dump()   # pydantic v2
+            except AttributeError:
+                manifest_dict = manifest.dict()         # pydantic v1
+
+            # 用 jsonable_encoder 处理 pydantic 模型与 datetime
+            manifest_json = json.dumps(jsonable_encoder(manifest), indent=2, ensure_ascii=False)
             z.writestr("manifest.json", manifest_json)
 
             # 复制图标文件到 icons/
@@ -427,84 +430,85 @@ def import_scene(file: UploadFile = File(...)):
     if not file.filename.lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="Please upload a .zip")
 
-    tmp = io.BytesIO(file.file.read())
-    with zipfile.ZipFile(tmp, "r") as z:
+    raw = file.file.read()
+    bio = io.BytesIO(raw)
+
+    # 在 with 作用域内完成：读取 manifest、复制图标、写 DB
+    with zipfile.ZipFile(bio, "r") as z:
         if "manifest.json" not in z.namelist():
             raise HTTPException(status_code=400, detail="manifest.json not found")
         manifest_data = json.loads(z.read("manifest.json").decode("utf-8"))
 
-    try:
-        m = ExportSceneManifest(**manifest_data)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Bad manifest: {e}")
-
-    with Session(engine) as s:
-        # 1) 新场景
-        new_scene = Scene(name=f'{m.scene.name} (Imported {datetime.utcnow().strftime("%Y%m%d%H%M%S")})')
-        s.add(new_scene); s.commit(); s.refresh(new_scene)
-
-        # 2) 分类（不存在则创建）
-        for cname in m.categories:
-            if not s.exec(select(CustomCategory).where(CustomCategory.name == cname)).first():
-                s.add(CustomCategory(name=cname))
-        s.commit()
-
-        # 3) 物品导入 + 图标复制 + 去重（name+category）
-        old_to_new: Dict[int, int] = {}
-        for it in m.items:
-            exists = s.exec(
-                select(Item).where(Item.name == it.name).where(Item.category == it.category)
-            ).first()
-
-            icon_path = ""
-            if it.icon_path and it.icon_path.startswith("/uploads/"):
-                basename = os.path.basename(it.icon_path)
-                icon_entry = f"icons/{basename}"
-                if icon_entry in z.namelist():
-                    newname = f"{uuid.uuid4().hex}{os.path.splitext(basename)[1].lower()}"
-                    dst = os.path.join("uploads", newname)
-                    with z.open(icon_entry) as src, open(dst, "wb") as out:
-                        shutil.copyfileobj(src, out)
-                    icon_path = f"/uploads/{newname}"
-
-            if exists:
-                # 若已存在但无图标且导入包有，则补图标
-                if (not exists.icon_path) and icon_path:
-                    exists.icon_path = icon_path
-                    s.add(exists)
-                s.commit(); s.refresh(exists)
-                old_to_new[it.id] = exists.id
-            else:
-                new_item = Item(
-                    name=it.name, category=it.category,
-                    description=it.description or "", icon_path=icon_path
-                )
-                s.add(new_item); s.commit(); s.refresh(new_item)
-                old_to_new[it.id] = new_item.id
-
-        # 4) 重写 graph 里的 itemId / item_id / item.id
-        #    兼容 v1/v2 的 dict 导出
         try:
-            graph_obj = m.graph.model_dump()
-        except Exception:
-            graph_obj = m.graph.dict()
+            m = ExportSceneManifest(**manifest_data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Bad manifest: {e}")
 
-        for n in graph_obj.get("nodes", []):
-            data = n.get("data") or {}
-            if isinstance(data.get("item_id"), int) and data["item_id"] in old_to_new:
-                data["item_id"] = old_to_new[data["item_id"]]
-            if isinstance(data.get("itemId"), int) and data["itemId"] in old_to_new:
-                data["itemId"] = old_to_new[data["itemId"]]
-            if isinstance(data.get("item"), dict) and isinstance(data["item"].get("id"), int):
-                old = data["item"]["id"]
-                if old in old_to_new:
-                    data["item"]["id"] = old_to_new[old]
-            n["data"] = data
+        with Session(engine) as s:
+            # 1) 新场景
+            new_scene = Scene(name=f'{m.scene.name} (Imported {datetime.utcnow().strftime("%Y%m%d%H%M%S")})')
+            s.add(new_scene); s.commit(); s.refresh(new_scene)
 
-        # 5) 保存图
-        g = Graph(scene_id=new_scene.id,
-                  json=json.dumps(graph_obj, ensure_ascii=False),
-                  updated_at=datetime.utcnow())
-        s.add(g); s.commit()
+            # 2) 分类（不存在则创建）
+            for cname in m.categories:
+                if not s.exec(select(CustomCategory).where(CustomCategory.name == cname)).first():
+                    s.add(CustomCategory(name=cname))
+            s.commit()
 
-        return {"ok": True, "scene_id": new_scene.id}
+            # 3) 物品导入 + 图标复制 + 去重（name+category）
+            old_to_new: Dict[int, int] = {}
+            for it in m.items:
+                exists = s.exec(
+                    select(Item).where(Item.name == it.name).where(Item.category == it.category)
+                ).first()
+
+                icon_path = ""
+                if it.icon_path and it.icon_path.startswith("/uploads/"):
+                    basename = os.path.basename(it.icon_path)
+                    icon_entry = f"icons/{basename}"
+                    if icon_entry in z.namelist():
+                        newname = f"{uuid.uuid4().hex}{os.path.splitext(basename)[1].lower()}"
+                        dst = os.path.join("uploads", newname)
+                        with z.open(icon_entry) as src, open(dst, "wb") as out:
+                            shutil.copyfileobj(src, out)
+                        icon_path = f"/uploads/{newname}"
+
+                if exists:
+                    if (not exists.icon_path) and icon_path:
+                        exists.icon_path = icon_path
+                        s.add(exists)
+                    s.commit(); s.refresh(exists)
+                    old_to_new[it.id] = exists.id
+                else:
+                    new_item = Item(
+                        name=it.name, category=it.category,
+                        description=it.description or "", icon_path=icon_path
+                    )
+                    s.add(new_item); s.commit(); s.refresh(new_item)
+                    old_to_new[it.id] = new_item.id
+
+            # 4) 重写 graph 里的 itemId / item_id / item.id
+            try:
+                graph_obj = m.graph.model_dump()  # pydantic v2
+            except Exception:
+                graph_obj = m.graph.dict()        # pydantic v1
+
+            for n in graph_obj.get("nodes", []):
+                data = n.get("data") or {}
+                if isinstance(data.get("item_id"), int) and data["item_id"] in old_to_new:
+                    data["item_id"] = old_to_new[data["item_id"]]
+                if isinstance(data.get("itemId"), int) and data["itemId"] in old_to_new:
+                    data["itemId"] = old_to_new[data["itemId"]]
+                if isinstance(data.get("item"), dict) and isinstance(data["item"].get("id"), int):
+                    old = data["item"]["id"]
+                    if old in old_to_new:
+                        data["item"]["id"] = old_to_new[old]
+                n["data"] = data
+
+            # 5) 保存图
+            g = Graph(scene_id=new_scene.id,
+                      json=json.dumps(graph_obj, ensure_ascii=False),
+                      updated_at=datetime.utcnow())
+            s.add(g); s.commit()
+
+            return {"ok": True, "scene_id": new_scene.id}
