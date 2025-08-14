@@ -1,5 +1,4 @@
-
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState, useImperativeHandle, forwardRef } from 'react'
 import ReactFlow, {
   Background, Controls, MiniMap,
   useNodesState, useEdgesState, addEdge,
@@ -12,6 +11,11 @@ import { SceneGraph } from '../types'
 import { applyDagreLayout } from './layout'
 import { uploadIcon, listItems, api, API_BASE } from './api'
 import type { Item } from '../types'
+
+// ② 定义给父组件用的句柄类型（放文件顶部或组件附近）
+export type CanvasHandle = {
+  getCurrentGraph: () => { nodes: any[]; edges: any[]; meta: any }
+}
 
 // Helper: prefix uploads with API_BASE
 const prefixUrl = (p?: string) => (p && p.startsWith('/uploads/')) ? `${API_BASE}${p}` : (p || '')
@@ -53,6 +57,13 @@ const DetailNode = ({ data }: any) => {
   }
   return (
     <div className="detail-node">
+      {/* 新增：隐藏的目标把手，供连线终点挂载 */}
+      <Handle
+        id="in"
+        type="target"
+        position={Position.Left}
+        style={{ width: 8, height: 8, opacity: 0, pointerEvents: 'none' }}
+      />
       <div className="detail-node-text" style={textStyle}>{data?.text || ''}</div>
     </div>
   )
@@ -61,13 +72,13 @@ const DetailNode = ({ data }: any) => {
 /** —— 注册自定义节点类型 —— */
 const nodeTypes = { iconNode: IconNode, detailNode: DetailNode }
 
-export default function Canvas({
-  initialGraph,
-  onGraphChange
-}: {
+const Canvas = forwardRef<CanvasHandle, {
   initialGraph: SceneGraph
   onGraphChange: (g: SceneGraph) => void
-}) {
+}>(({
+  initialGraph,
+  onGraphChange
+}, ref) => {
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([])
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([])
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null)
@@ -147,7 +158,7 @@ export default function Canvas({
         }
         const eid = `dedge-${n.id}`
         if (!resEdges.find(e => e.id === eid)) {
-          resEdges.push({ id: eid, source: n.id, target: dnid, type: 'step', markerEnd: undefined, style: { strokeDasharray: '4 4', strokeWidth: 1.5, opacity: 0.8 } } as any)
+          resEdges.push({ id: eid, source: n.id,sourceHandle: 'r', target: dnid,targetHandle: 'in', type: 'step', markerEnd: undefined, style: { strokeDasharray: '4 4', strokeWidth: 1.5, opacity: 0.8 } } as any)
           changed = true
         }
       } else {
@@ -221,26 +232,67 @@ export default function Canvas({
     setEdges(eds => eds.map(e => ({ ...e, type: t, markerEnd: { type: MarkerType.ArrowClosed }, style: { ...e.style, strokeWidth: 2 } })) as any)
   }
 
+	// —— 导出辅助：找到同时包含 nodes 和 edges 的容器，并排除面板类 ——
+
+	// 选择含 edges 的容器：优先 .react-flow（根），否则退到 .react-flow__renderer
+	function getRFExportElement(): HTMLElement | null {
+	  const root = document.querySelector('.react-flow') as HTMLElement | null
+	  if (!root) return null
+	  if (root.querySelector('.react-flow__edges')) return root
+	  const renderer = root.querySelector('.react-flow__renderer') as HTMLElement | null
+	  return renderer || root
+	}
+
+	// 过滤掉覆盖在上面的面板（Controls、MiniMap、Attribution 等）
+	const rfExportFilter = (node: HTMLElement) => {
+	  const cls = node.classList ? Array.from(node.classList) : []
+	  if (cls.some(c => c.startsWith('react-flow__panel'))) return false
+	  if (node.closest && node.closest('.react-flow__panel')) return false
+	  return true
+	}
+
   // 导出
-  async function exportPNG() {
-    const el = document.querySelector('.react-flow__viewport') as HTMLElement
-    if (!el) return
-    const dataUrl = await toPng(el, { pixelRatio: 2 })
-    const a = document.createElement('a')
-    a.download = 'canvas.png'; a.href = dataUrl; a.click()
-  }
-  async function exportSVG() {
-    const el = document.querySelector('.react-flow__viewport') as HTMLElement
-    if (!el) return
-    const dataUrl = await toSvg(el)
-    let svgString = dataUrl;
-    if (dataUrl.startsWith('data:image/svg+xml;base64,')) {
-      svgString = atob(dataUrl.substring('data:image/svg+xml;base64,'.length));
-    }
-    const blob = new Blob([svgString], { type: 'image/svg+xml' })
-    const a = document.createElement('a')
-    a.download = 'canvas.svg'; a.href = URL.createObjectURL(blob); a.click()
-  }
+	// PNG 导出：抓取包含 edges 的容器
+	async function exportPNG() {
+	  const el = getRFExportElement()
+	  if (!el) return alert('未找到导出容器')
+
+	  const dataUrl = await toPng(el, {
+		pixelRatio: 2,
+		cacheBust: true,
+		backgroundColor: '#ffffff',
+		filter: (n) => rfExportFilter(n as HTMLElement),
+	  })
+
+	  const a = document.createElement('a')
+	  a.download = 'canvas.png'
+	  a.href = dataUrl
+	  a.click()
+	}
+
+	// SVG 导出：同样抓外层容器，并用 fetch 把 dataURL 转 Blob
+	async function exportSVG() {
+	  const el = getRFExportElement()
+	  if (!el) return alert('未找到导出容器')
+
+	  const dataUrl = await toSvg(el, {
+		cacheBust: true,
+		filter: (n) => rfExportFilter(n as HTMLElement),
+	  })
+
+	  const res = await fetch(dataUrl)
+	  if (!res.ok) throw new Error('Failed to convert data URL to Blob')
+	  const blob = await res.blob()
+
+	  const url = URL.createObjectURL(blob)
+	  const a = document.createElement('a')
+	  a.href = url
+	  a.download = 'canvas.svg'
+	  document.body.appendChild(a)
+	  a.click()
+	  document.body.removeChild(a)
+	  URL.revokeObjectURL(url)
+	}
 
   // 一些生成器（分叉/短横/层级）
   function addFork(children = 3) {
@@ -308,6 +360,12 @@ export default function Canvas({
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); undo() }
     if ((ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === 'y') { ev.preventDefault(); redo() }
   }
+
+  useImperativeHandle(ref, () => ({
+    getCurrentGraph: () => {
+      return { nodes, edges, meta: {} }
+    }
+  }), [nodes, edges]);
 
   // 右上角浮层（属性）
   const detailsOverlay = selectedId ? (() => {
@@ -450,4 +508,6 @@ export default function Canvas({
       )}
     </div>
   )
-}
+})
+
+export default Canvas

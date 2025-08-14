@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, useRef } from 'react'
 import Inventory from './Inventory'
-import Canvas from './Canvas'
+import Canvas, { type CanvasHandle } from './Canvas'
 import Toolbar from './Toolbar'
 import { listScenes, createScene, updateScene, deleteScene, getGraph, saveGraph } from './api'
 
@@ -11,6 +11,7 @@ export default function App() {
   const [sceneId, setSceneId] = useState<number | null>(null)
   const [pending, setPending] = useState(false)
   const [graph, setGraph] = useState<any>({ nodes: [], edges: [], meta: {} })
+  const canvasRef = useRef<CanvasHandle>(null)
 
   useEffect(() => {
     (async () => {
@@ -28,8 +29,12 @@ export default function App() {
     })()
   }, [sceneId])
 
-  async function onSave(g: any) {
+  async function onSave() {
     if (sceneId == null) return
+    const g = canvasRef.current?.getCurrentGraph()
+    if (!g) return
+
+    console.log('SAVE_PAYLOAD_SAMPLE_NODE', g.nodes?.[0]) // 随便看第一个节点
     setPending(true)
     try {
       const res = await saveGraph(sceneId, g)
@@ -88,7 +93,7 @@ export default function App() {
         onCreateScene={onCreateScene}
         onRenameScene={onRenameScene}
         onDeleteScene={onDeleteScene}
-        onSave={() => onSave(graph)}
+        onSave={onSave}
         saving={pending}
       />
       <div className="layout">
@@ -100,6 +105,7 @@ export default function App() {
         </div>
         <div className="canvas-wrap">
           <Canvas
+            ref={canvasRef}
             key={sceneId ?? 0}
             initialGraph={graph}
             onGraphChange={(g) => setGraph(g)}
@@ -109,3 +115,4 @@ export default function App() {
     </div>
   )
 }
+
