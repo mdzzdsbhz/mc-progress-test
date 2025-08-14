@@ -10,6 +10,7 @@ mc-progress-webui/
 │  ├─ main.py
 │  ├─ requirements.txt
 │  └─ uploads/          # 图标与导出 JSON 存放
+│  └─ mcprogress.db     # SQLite 数据库文件
 └─ web/                 # React + Vite 前端（TypeScript）
    ├─ src/
    │  ├─ components/
@@ -42,64 +43,98 @@ mc-progress-webui/
 
 > 注：示例默认未包含 Minecraft 原版贴图，请通过**拖拽上传**自己的图标或使用开源素材。
 
+## 快速启动
+
+为了方便快速启动前后端服务，项目提供了以下批处理脚本：
+
+-   `start-all.bat`: 使用 Windows Terminal 启动，会在两个新的标签页中分别运行前端和后端服务。
+-   `start.bat`: 使用独立的命令提示符窗口启动前端和后端服务。
+
+**使用方法：**
+
+双击运行 `start-all.bat` 或 `start.bat` 即可。请确保您已安装所有必要的依赖（见下文“本地运行”部分）。
+
 ## 本地运行
+
+在运行项目之前，请确保您的系统已安装以下环境：
+
+-   **Python 3.10+** (后端)
+-   **Node.js 18+** (前端)
+-   **npm** (通常随 Node.js 一同安装)
 
 ### 1) 后端（Python 3.10+）
 
-```bash
-cd server
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# macOS/Linux: source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
-```
-
-后端将开放：
-- `http://127.0.0.1:8000/api/items` 等 REST 接口
-- `http://127.0.0.1:8000/uploads/...` 静态图标访问
+1.  进入 `server` 目录：
+    ```bash
+    cd server
+    ```
+2.  （可选）创建并激活虚拟环境：
+    ```bash
+    python -m venv .venv
+    # Windows: .venv\Scripts\activate
+    # macOS/Linux: source .venv/bin/activate
+    ```
+3.  安装 Python 依赖：
+    ```bash
+    pip install -r requirements.txt
+    ```
+4.  启动后端服务：
+    ```bash
+    uvicorn main:app --reload --port 8000
+    ```
+    后端将开放：
+    -   `http://127.0.0.1:8000/api/items` 等 REST 接口
+    -   `http://127.0.0.1:8000/uploads/...` 静态图标访问
 
 ### 2) 前端（Node 18+）
 
-```bash
-cd web
-npm i
-# 如后端不在本机或端口不同，可设置环境变量：
-#   PowerShell: $env:VITE_API_BASE="http://127.0.0.1:8000"
-#   Bash: export VITE_API_BASE="http://127.0.0.1:8000"
-npm run dev
-```
-
-打开 `http://localhost:5173/`。
+1.  进入 `web` 目录：
+    ```bash
+    cd web
+    ```
+2.  安装 Node.js 依赖：
+    ```bash
+    npm i
+    ```
+3.  （可选）如后端不在本机或端口不同，可设置环境变量 `VITE_API_BASE`：
+    ```bash
+    # PowerShell: $env:VITE_API_BASE="http://127.0.0.1:8000"
+    # Bash: export VITE_API_BASE="http://127.0.0.1:8000"
+    ```
+4.  启动前端开发服务器：
+    ```bash
+    npm run dev
+    ```
+    打开 `http://localhost:5173/` 即可访问前端界面。
 
 ## 使用说明
 
-- 物品库：
-  - 搜索框 + 分类按钮筛选
-  - 把任意**图片文件**拖到物品库区域，按提示命名和分类即可上传入库
-  - 从物品库**拖拽**任意物品到画布，生成节点（每个节点都有独立的标题/详情，可二次编辑）
+-   物品库：
+    -   搜索框 + 分类按钮筛选
+    -   把任意**图片文件**拖到物品库区域，按提示命名和分类即可上传入库
+    -   从物品库**拖拽**任意物品到画布，生成节点（每个节点都有独立的标题/详情，可二次编辑）
 
-- 画布：
-  - 单击节点：选中；拖拽连线点即可连接/改变指向
-  - 顶部按钮：
-    - 展开/折叠详细信息（MC 风格显示）
-    - 自动布局（LR/TB）
-    - 线条风格（直线/正交/圆角/贝塞尔）全局应用到现有连线
-    - “短横”：从选中节点加一个短连接的小节点
-    - “分叉×3”：从选中节点生成三个子节点并连线
-    - “独立层级”：生成一个 3x3 的树状结构
-    - 导出 PNG/SVG
-  - 删除：选中后按 <Delete>/<Backspace>
-  - 撤销/重做：使用浏览器/系统快捷键（Ctrl/Cmd+Z / Ctrl/Cmd+Y）
+-   画布：
+    -   单击节点：选中；拖拽连线点即可连接/改变指向
+    -   顶部按钮：
+        -   展开/折叠详细信息（MC 风格显示）
+        -   自动布局（LR/TB）
+        -   线条风格（直线/正交/圆角/贝塞尔）全局应用到现有连线
+        -   “短横”：从选中节点加一个短连接的小节点
+        -   “分叉×3”：从选中节点生成三个子节点并连线
+        -   “独立层级”：生成一个 3x3 的树状结构
+        -   导出 PNG/SVG
+    -   删除：选中后按 `<Delete>` / `<Backspace>`
+    -   撤销/重做：使用浏览器/系统快捷键（`Ctrl`/`Cmd` + `Z` / `Ctrl`/`Cmd` + `Y`）
 
-- 场景：工具栏左侧选择或新建；“保存到后端”会把当前画布写入 SQLite。
+-   场景：工具栏左侧选择或新建；“保存到后端”会把当前画布写入 SQLite。
 
 ## 二次开发提示
 
-- 线条样式为每条 Edge 的 `type` 字段（`default`/`step`/`smoothstep`/`bezier`）；可拓展自定义 EdgeType。
-- 若需要“标签智能避让”，建议在展开详情后触发一次 `applyDagreLayout`，并按节点 `data.showDetails` 调整节点宽高（已演示）。
-- 可在 `Canvas.tsx` 的 `generateHierarchy` 与 `addFork` 中自定义生成规则。
-- 若需要多人协作/实时同步，可在后端加入 WebSocket 广播，前端使用 `onNodesChange`/`onEdgesChange` 增量同步。
+-   线条样式为每条 Edge 的 `type` 字段（`default`/`step`/`smoothstep`/`bezier`）；可拓展自定义 EdgeType。
+-   若需要“标签智能避让”，建议在展开详情后触发一次 `applyDagreLayout`，并按节点 `data.showDetails` 调整节点宽高（已演示）。
+-   可在 `Canvas.tsx` 的 `generateHierarchy` 与 `addFork` 中自定义生成规则。
+-   若需要多人协作/实时同步，可在后端加入 WebSocket 广播，前端使用 `onNodesChange`/`onEdgesChange` 增量同步。
 
 ## 许可证
 
